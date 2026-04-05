@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>義教街 貓狗好啦好啦 - 家庭管理</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --paper-bg: #f7f5f0;
+            --card-bg: #fffbf5;
+            --text-ink: #292524;
+            --title-ink: #433422;
+            --bronze: #8B5E3C;
+            --gold-solid: #D4AF37;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', serif;
+            background-color: var(--paper-bg);
+            color: var(--text-ink);
+            background-image: radial-gradient(#e5e5e5 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .title-brown { color: var(--title-ink); font-weight: 800; }
+        .paper-card { background-color: var(--card-bg); box-shadow: 2px 2px 5px rgba(0,0,0,0.05), -1px -1px 2px rgba(255,255,255,0.5); border: 1px solid #e7e5e0; border-radius: 12px; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .progress-bg { background-color: rgba(168, 162, 158, 0.5); }
+        .shadow-border { box-shadow: 0 0 0 1px rgba(0,0,0,0.1), 4px 4px 0 rgba(139, 94, 60, 0.1); }
+        .check-date-box { line-height: 1.2; font-size: 10px; }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+        .animate-sync { animation: pulse 1.5s infinite; }
+        .bronze-gold { background-color: var(--gold-solid); }
+        .detail-panel { overflow: hidden; transition: max-height 0.3s ease, opacity 0.3s ease; }
+        .detail-panel.open { max-height: 600px; opacity: 1; }
+        .detail-panel.closed { max-height: 0; opacity: 0; }
+    </style>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#8B5E3C">
+    <link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const STORAGE_KEY = 'family_management_api_url';
+
+        // 日期格式化工具
+        const formatYMD = (dateString) => {
+            if (!dateString) return "";
+            const d = new Date(dateString);
+            if (isNaN(d.getTime())) return dateString;
+            return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+        };
+
+        const Stepper = ({ value, step, onUpdate, min = 0, max }) => (
+            <div className="flex items-center gap-2">
+                <button onClick={() => onUpdate(Math.max(min, value - step))} className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center hover:bg-stone-100 active:scale-95 transition-all title-brown">-</button>
+                <input type="number" value={value} onChange={(e) => onUpdate(Number(e.target.value))} className="font-mono text-sm w-16 text-center bg-transparent border-b border-stone-200 focus:border-bronze focus:outline-none" />
+                <button onClick={() => onUpdate(max !== undefined ? Math.min(max, value + step) : value + step)} className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center hover:bg-stone-100 active:scale-95 transition-all title-brown">+</button>
+            </div>
+        );
+
+        const ProgressBar = ({ current, target, colorClass = "bronze-gold", label, isCustomColor = false }) => {
+            const percentage = target > 0 ? (current / target) * 100 : 0;
+            const displayPercentage = Math.min(100, percentage);
+            const isExceeded = percentage >= 100;
+            const barColor = isExceeded ? "bg-red-500" : (isCustomColor ? colorClass : "bronze-gold");
+            return (
+                <div className="w-full">
+                    <div className="flex justify-between items-end mb-1">
+                        <span className={`text-xs font-bold ${isExceeded ? 'text-red-600' : 'text-stone-600'}`}>{label}</span>
+                        <span className={`text-[10px] font-mono ${isExceeded ? 'text-red-500' : 'text-stone-400'}`}>{Math.round(current).toLocaleString()} / {target.toLocaleString()}</span>
+                    </div>
+                    <div className="h-2.5 w-full progress-bg rounded-full overflow-hidden border border-stone-200/50">
+                        <div className={`h-full ${barColor} transition-all duration-500`} style={{ width: `${displayPercentage}%` }} />
+                    </div>
+                </div>
+            );
+        };
+
+        const InventoryBox = ({ title, items, onAction, labels = { name: '名稱', price: '單價', amount: '庫存量' } }) => {
+            const [editOpen, setEditOpen] = useState(false);
+            const [newItem, setNewItem] = useState({ name: '', price: '', total: '' });
+
+            const handleAdd = () => {
+                if (!newItem.name || !newItem.total) return;
+                onAction('ADD', { name: newItem.name, price: Number(newItem.price) || 0, total: Number(newItem.total), current: 0 });
+                setNewItem({ name: '', price: '', total: '' });
+            };
+
+            return (
+                <div className="p-3 bg-stone-50 rounded-lg border border-stone-200 text-xs transition-all">
+                    <div className="flex items-center justify-between border-b border-stone-200 pb-1 mb-2">
+                        <div className="font-bold title-brown italic text-[10px]">~ {title} ~</div>
+                        <button onClick={() => setEditOpen(v => !v)} className={`text-[13px] transition-colors ${editOpen ? 'text-amber-600 font-bold' : 'text-stone-300 hover:text-stone-500'}`}>{editOpen ? '完成' : '✏️'}</button>
+                    </div>
+
+                    <div className="flex text-[9px] text-stone-400 font-mono mb-1 px-0.5">
+                        <span className="flex-1">{labels.name}</span>
+                        <span className="w-16 text-right">{labels.price}</span>
+                        <span className="w-24 text-right">{labels.amount}</span>
+                        {editOpen && <span className="w-6"></span>}
+                    </div>
+
+                    {/* 套用明細捲軸 */}
+                    <div className="space-y-1 max-h-[200px] overflow-y-auto hide-scrollbar">
+                        {items.length === 0 && <div className="text-center py-2 text-stone-300 text-[10px] italic">尚無資料</div>}
+                        {items.map((item, idx) => (
+                            <div key={idx} className="flex items-center text-stone-600 gap-1">
+                                <span className="flex-1 truncate">{item.name}</span>
+                                {editOpen ? (
+                                    <input type="number" value={item.price} onChange={e => onAction('UPDATE', {idx, field: 'price', val: Number(e.target.value)})} className="w-16 text-right text-[10px] border border-amber-200 rounded px-1 bg-white focus:outline-none focus:border-amber-500" />
+                                ) : (
+                                    <span className="w-16 text-right font-mono text-stone-400">{item.price != null ? `$${item.price.toLocaleString()}` : '—'}</span>
+                                )}
+                                {editOpen ? (
+                                    <div className="flex items-center gap-0.5 w-24 justify-end">
+                                        <button onClick={() => onAction('UPDATE', {idx, field: 'current', val: Math.max(0, item.current - 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">-</button>
+                                        <span className="font-mono text-[10px] w-8 text-center">{item.current}/{item.total}</span>
+                                        <button onClick={() => onAction('UPDATE', {idx, field: 'current', val: Math.min(item.total, item.current + 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">+</button>
+                                        <div className="mx-1 h-3 w-[1px] bg-stone-200"></div>
+                                        <input type="number" value={item.total} onChange={e => onAction('UPDATE', {idx, field: 'total', val: Number(e.target.value)})} className="w-6 text-[9px] text-right border-b border-stone-200 bg-transparent focus:outline-none" />
+                                    </div>
+                                ) : (
+                                    <span className="w-24 text-right text-stone-400">{item.current} / {item.total}</span>
+                                )}
+                                {editOpen && <button onClick={() => onAction('REMOVE', {idx})} className="w-6 flex justify-center text-stone-300 hover:text-red-400">×</button>}
+                            </div>
+                        ))}
+                    </div>
+
+                    {editOpen && (
+                        <div className="mt-4 pt-3 border-t border-dashed border-stone-200">
+                            <div className="text-[9px] font-bold text-amber-600 mb-2 uppercase tracking-tighter">＋ 新增紀錄</div>
+                            <div className="flex items-center gap-1">
+                                <input type="text" placeholder={labels.name} value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white focus:border-amber-400" />
+                                <input type="number" placeholder="金額" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white" />
+                                <input type="number" placeholder="數量" value={newItem.total} onChange={e => setNewItem({...newItem, total: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white" />
+                                <button onClick={handleAdd} className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600">＋</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const DetailPanel = ({ items, onAction, title = "明細" }) => {
+            const [open, setOpen] = useState(false);
+            const [form, setForm] = useState({ name: '', amount: '', date: formatYMD(new Date().toISOString()) });
+
+            const handleAdd = () => {
+                if (!form.name || !form.amount) return;
+                onAction('ADD', { name: form.name, amount: Number(form.amount), date: form.date });
+                setForm({ name: '', amount: '', date: formatYMD(new Date().toISOString()) });
+            };
+
+            return (
+                <div className="mt-1">
+                    <button onClick={() => setOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-stone-400">
+                        <span>{open ? '▾' : '▸'}</span>
+                        <span>{title} ({items.length})</span>
+                    </button>
+                    <div className={`detail-panel ${open ? 'open' : 'closed'}`}>
+                        <div className="mt-2 bg-stone-50 rounded-lg border border-stone-200 p-2">
+                            <div className="flex items-center text-[9px] text-stone-400 font-mono pb-1 border-b border-stone-100 gap-1 mb-1">
+                                <span className="flex-1 px-0.5">名稱</span>
+                                <span className="w-16 text-right">金額</span>
+                                <span className="w-20 text-right">日期</span>
+                                <span className="w-4"></span>
+                            </div>
+                            
+                            <div className="max-h-[200px] overflow-y-auto hide-scrollbar space-y-1 mb-2 pr-1">
+                                {items.length === 0 && <div className="text-center py-2 text-stone-300 text-[10px] italic">尚無資料</div>}
+                                {items.map((item, idx) => (
+                                    <div key={idx} className="flex items-center text-[10px] text-stone-600 gap-1">
+                                        <span className="flex-1 truncate px-0.5">{item.name}</span>
+                                        <span className="w-16 text-right font-mono">${item.amount.toLocaleString()}</span>
+                                        <span className="w-20 text-right text-stone-400 font-mono">{item.date}</span>
+                                        <button onClick={() => onAction('REMOVE', {idx})} className="w-4 text-center text-stone-300 hover:text-red-400 transition-colors">×</button>
+                                    </div>
+                                ))}
+                            </div>
+                            
+                            <div className="flex items-center gap-1 pt-2 border-t border-stone-100">
+                                <input type="text" placeholder="項目" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1 min-w-0 py-1" />
+                                <input type="number" placeholder="$" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="w-14 text-[10px] border border-stone-200 rounded px-1 py-1" />
+                                <button onClick={handleAdd} className="w-5 h-5 rounded bg-stone-400 text-white text-[12px] flex items-center justify-center flex-shrink-0 hover:bg-stone-500">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [syncing, setSyncing] = useState(false);
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const today = formatYMD(new Date().toISOString());
+
+            const [apiUrlInput, setApiUrlInput] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+            const [apiUrlSetting, setApiUrlSetting] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+            const wantTimerRef = useRef(null);
+
+            const [wants, setWants] = useState([
+                { name: "家具&家飾&咖啡機", goal: 300000, current: 0, icon: "☕" },
+                { name: "漂亮露營用具", goal: 50000, current: 0, icon: "⛺" },
+                { name: "聽專場", goal: 10000, current: 0, icon: "🎸" },
+                { name: "生日吃 Fine Dining", goal: 10000, current: 0, icon: "🍴" },
+                { name: "露營出遊", goal: 10000, current: 0, icon: "🚐" },
+                { name: "日本旅費", goal: 100000, current: 0, icon: "🇯🇵" },
+                { name: "歐洲旅費", goal: 240000, current: 0, icon: "🇪🇺" },
+            ]);
+
+            const [dailyData, setDailyData] = useState({
+                beauty: { checked: false, time: null, cost: 3000 },
+                gym1: { checked: false, time: null, cost: 1088 },
+                gym2: { checked: false, time: null, cost: 1288 }
+            });
+
+            const [rentStatus, setRentStatus] = useState(0);
+            const [rentTime, setRentTime] = useState(null);
+
+            const [fridgeItems, setFridgeItems] = useState([]);
+            const [storeItems, setStoreItems] = useState([]);
+            const [carItems, setCarItems] = useState([]);
+            const [wantsDetails, setWantsDetails] = useState([]);
+            const [daily1Details, setDaily1Details] = useState([]);
+            const [daily2Details, setDaily2Details] = useState([]);
+            const [billDetails, setBillDetails] = useState([]);
+
+            const eatingSum = useMemo(() => fridgeItems.reduce((acc, cur) => acc + ((Number(cur.price) || 0) * (Number(cur.current) || 0)), 0), [fridgeItems]);
+            const catsSum = useMemo(() => storeItems.reduce((acc, cur) => acc + ((Number(cur.price) || 0) * (Number(cur.current) || 0)), 0), [storeItems]);
+            const wantsSum = useMemo(() => wantsDetails.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [wantsDetails]);
+            const daily1Sum = useMemo(() => daily1Details.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [daily1Details]);
+            const daily2Sum = useMemo(() => daily2Details.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [daily2Details]);
+            const oilSum = useMemo(() => carItems.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [carItems]);            const totalBills = useMemo(() => billDetails.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0), [billDetails]);
+
+            const totalDailySpent = useMemo(() => {
+                let sum = eatingSum + catsSum + wantsSum + daily1Sum + daily2Sum + oilSum + totalBills;
+                if (dailyData.beauty.checked) sum += Number(dailyData.beauty.cost) || 0;
+                if (dailyData.gym1.checked) sum += Number(dailyData.gym1.cost) || 0;
+                if (dailyData.gym2.checked) sum += Number(dailyData.gym2.cost) || 0;
+                return sum;
+            }, [eatingSum, catsSum, wantsSum, daily1Sum, daily2Sum, oilSum, totalBills, dailyData]);
+
+            const fetchData = async () => {
+                if (!apiUrlSetting) return;
+                setSyncing(true);
+                try {
+                    const response = await fetch(apiUrlSetting);
+                    const data = await response.json();
+                    
+                    if (data) {
+                        if (data.wants && Array.isArray(data.wants)) {
+                            setWants(prev => prev.map(w => {
+                                const backendData = data.wants.find(dw => dw.name === w.name);
+                                return backendData ? { ...w, current: Number(backendData.current) || 0, goal: Number(backendData.goal) || 0 } : w;
+                            }));
+                        }
+                        const d = data.daily;
+                        if (d) {
+                            setDailyData(prev => ({
+                                ...prev,
+                                gym1: { ...prev.gym1, checked: !!d.gym1 },
+                                gym2: { ...prev.gym2, checked: !!d.gym2 },
+                                beauty: { ...prev.beauty, checked: !!d.beauty }
+                            }));
+
+                            // 日期轉換處理 (formatYMD)
+                            if (d.fridge && Array.isArray(d.fridge)) setFridgeItems(d.fridge.map(f => ({ name: f.name, price: Number(f.price)||0, current: Number(f.usage)||0, total: Number(f.stock)||0 })));
+                            if (d.cats && Array.isArray(d.cats)) setStoreItems(d.cats.map(c => ({ name: c.name, price: Number(c.price)||0, current: Number(c.usage)||0, total: Number(c.stock)||0 })));
+                            if (d.wants && Array.isArray(d.wants)) setWantsDetails(d.wants.map(w => ({ name: w.name, amount: Number(w.amount)||0, date: formatYMD(w.date) })));
+                            if (d.oil && Array.isArray(d.oil)) setCarItems(d.oil.map(o => ({ name: o.location, amount: Number(o.amount)||0, date: formatYMD(o.time) })));                            if (d.bills && Array.isArray(d.bills)) setBillDetails(d.bills.map(b => ({ name: b.item, amount: Number(b.amount)||0, date: formatYMD(b.date) })));
+                            if (d.user1 && Array.isArray(d.user1)) setDaily1Details(d.user1.map(u => ({ name: u.name, amount: Number(u.amount)||0, date: formatYMD(u.date) })));
+                            if (d.user2 && Array.isArray(d.user2)) setDaily2Details(d.user2.map(u => ({ name: u.name, amount: Number(u.amount)||0, date: formatYMD(u.date) })));
+                        }
+                    }
+                } catch (error) {
+                    console.error("取得資料失敗:", error);
+                } finally {
+                    setSyncing(false);
+                }
+            };
+
+            useEffect(() => { if (apiUrlSetting) fetchData(); }, [apiUrlSetting]);
+
+            const saveConnectionSettings = () => {
+                const url = apiUrlInput.trim();
+                setApiUrlSetting(url);
+                if (url) localStorage.setItem(STORAGE_KEY, url);
+                setIsSettingsOpen(false);
+            };
+
+            // ===== 核心覆寫同步引擎 =====
+            const syncCategory = async (categoryKey, itemsToSync, formatFn) => {
+                if (!apiUrlSetting) return;
+                setSyncing(true);
+                try {
+                    const data2D = itemsToSync.map(formatFn);
+                    console.log(`[A] 正在覆寫區塊 ${categoryKey}:`, data2D);
+                    await fetch(apiUrlSetting, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: "OVERWRITE_CATEGORY", category: categoryKey, data: data2D }),
+                        mode: 'no-cors'
+                    });
+                    setTimeout(fetchData, 1500); 
+                } catch (error) { 
+                    console.error("[C] 覆寫失敗:", error); 
+                    setSyncing(false); 
+                }
+            };
+
+            const formatInv = (item) => [item.name, item.price, item.current, item.total, ""];
+            const formatDet = (item) => [item.name, item.amount, item.date];
+
+            const handleInvAction = (action, setter, category, items, payload) => {
+                let n = [...items];
+                if (action === 'ADD') n.push(payload);
+                if (action === 'UPDATE') n[payload.idx] = { ...n[payload.idx], [payload.field]: payload.val };
+                if (action === 'REMOVE') n = n.filter((_, i) => i !== payload.idx);
+                setter(n);
+                syncCategory(category, n, formatInv);
+            };
+
+            const handleDetAction = (action, setter, category, items, payload) => {
+                let n = [...items];
+                if (action === 'ADD') n.push(payload);
+                if (action === 'REMOVE') n = n.filter((_, i) => i !== payload.idx);
+                setter(n);
+                syncCategory(category, n, formatDet);
+            };
+            // ============================
+
+            const updateWant = (index, newVal) => {
+                const n = [...wants]; n[index].current = newVal; setWants(n); 
+                if (!apiUrlSetting) return;
+                if (wantTimerRef.current) clearTimeout(wantTimerRef.current);
+                setSyncing(true);
+                wantTimerRef.current = setTimeout(async () => {
+                    try {
+                        await fetch(apiUrlSetting, { method: 'POST', body: JSON.stringify({ action: "UPDATE_WANT", index: index, value: newVal }), mode: 'no-cors' });
+                        setTimeout(fetchData, 1000); 
+                    } catch (error) { setSyncing(false); }
+                }, 1000); 
+            };
+
+            const handleCheck = async (key) => {
+                const isChecked = !dailyData[key].checked;
+                const now = new Date().toLocaleString('zh-TW', { hour12: false });
+                setDailyData(prev => ({ ...prev, [key]: { ...prev[key], checked: isChecked, time: isChecked ? now : null } }));
+                if (!apiUrlSetting) return;
+                try {
+                    const typeMap = { gym1: "GYM1", gym2: "GYM2", beauty: "BEAUTY" };
+                    setSyncing(true);
+                    await fetch(apiUrlSetting, { method: 'POST', body: JSON.stringify({ action: "CHECK_ACTION", type: typeMap[key], value: isChecked }), mode: 'no-cors' });
+                    setTimeout(fetchData, 1500); 
+                } catch (error) { setSyncing(false); }
+            };
+
+            const cycleRent = () => {
+                const next = (rentStatus + 1) % 4;
+                setRentStatus(next);
+                setRentTime(next !== 0 ? new Date().toLocaleString('zh-TW', { hour12: false }) : null);
+            };
+
+            const getRentBtnStyle = () => {
+                switch(rentStatus) {
+                    case 1: return "bg-orange-500 border-orange-600 text-white shadow-inner";
+                    case 2: return "bg-emerald-600 border-emerald-700 text-white shadow-inner";
+                    case 3: return "bg-emerald-50 border-emerald-500 text-emerald-600 font-bold";
+                    default: return "border-stone-200 text-transparent";
+                }
+            };
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen flex flex-col p-4 space-y-6 pb-12 relative">
+                    <header className="py-4 text-center sticky top-0 bg-[#f7f5f0]/95 backdrop-blur-sm z-50 flex justify-between items-center border-b border-stone-200">
+                        <div className="w-12"></div>
+                        <div>
+                            <h1 className="text-2xl title-brown tracking-tighter">義教街 貓狗好啦好啦</h1>
+                            <p className="text-[10px] text-stone-400 font-mono tracking-widest uppercase">{today}</p>
+                        </div>
+                        <div className="w-12 flex justify-end">
+                            <button onClick={() => setIsSettingsOpen(true)} className="p-2 -mr-2 outline-none">
+                                <div className={`w-3 h-3 rounded-full transition-colors ${syncing ? 'bg-amber-400 animate-sync' : (apiUrlSetting ? 'bg-emerald-500' : 'bg-stone-300')}`}></div>
+                            </button>
+                        </div>
+                    </header>
+
+                    {isSettingsOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setIsSettingsOpen(false)}>
+                            <div className="w-full max-w-sm paper-card p-6 space-y-4" onClick={e => e.stopPropagation()}>
+                                <h2 className="text-lg font-bold title-brown">⚙️ 連線設定</h2>
+                                <input type="url" className="w-full border border-stone-200 rounded-lg px-3 py-2 text-xs focus:border-amber-500 focus:outline-none" placeholder="輸入 GAS Web App URL" value={apiUrlInput} onChange={(e) => setApiUrlInput(e.target.value)} />
+                                <button onClick={saveConnectionSettings} className="w-full bg-stone-800 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-stone-700">儲存並同步</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <section className="h-[75vh] paper-card p-4 flex flex-col">
+                        <h2 className="text-lg font-bold mb-4 title-brown sticky top-0 bg-[#fffbf5] py-2 z-10">2026 第二季 想要的進度</h2>
+                        <div className="flex-1 overflow-y-auto space-y-6 pr-2 hide-scrollbar">
+                            {wants.map((item, idx) => (
+                                <div key={idx} className="flex flex-col gap-2">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-2"><span className="text-xl">{item.icon || "✨"}</span><span className="text-sm font-bold text-stone-700">{item.name}</span></div>
+                                        <Stepper value={item.current} step={100} onUpdate={(val) => updateWant(idx, val)} />
+                                    </div>
+                                    <ProgressBar current={item.current} target={item.goal} />
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="space-y-4 pt-4">
+                        <div className="paper-card p-4 shadow-border border-2 border-stone-300 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-1 h-full bg-[#8B5E3C]"></div>
+                            <h2 className="text-center text-xl font-bold title-brown tracking-widest">必要總覽 4月</h2>
+                        </div>
+
+                        <div className="paper-card p-4 flex justify-between items-center">
+                            <div><div className="text-lg font-bold title-brown">房房</div><div className="text-[10px] text-stone-400 font-mono">31,000 /times 2</div></div>
+                            <div className="flex items-center gap-3">
+                                <div className="check-date-box flex flex-col text-right text-stone-400 w-24">
+                                    {rentTime ? (<><span>{rentTime.split(' ')[0]}</span><span>{rentTime.split(' ')[1]}</span></>) : <span className="italic opacity-30">未處理</span>}
+                                </div>
+                                <button onClick={cycleRent} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${getRentBtnStyle()}`}>
+                                    {rentStatus === 3 ? '✓' : (rentStatus === 0 ? '' : (rentStatus === 1 ? 'P1' : 'P2'))}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="paper-card p-5 space-y-8">
+                            <div className="border-b border-stone-200 pb-4">
+                                <div className="flex justify-between items-baseline mb-3"><h3 className="text-xl font-bold title-brown">日常</h3><span className="text-stone-400 font-mono text-xs">預算 38,000</span></div>
+                                <ProgressBar current={totalDailySpent} target={38000} label="日常總進度" />
+                            </div>
+
+                            <div className="space-y-3">
+                                <ProgressBar current={eatingSum} target={10000} label="吃的" />
+                                <InventoryBox title="冰箱庫存" items={fridgeItems} onAction={(act, p) => handleInvAction(act, setFridgeItems, "FRIDGE", fridgeItems, p)} />
+                            </div>
+
+                            <div className="space-y-3">
+                                <ProgressBar current={catsSum} target={4000} label="小貓貓" />
+                                <InventoryBox title="庫房庫存" items={storeItems} onAction={(act, p) => handleInvAction(act, setStoreItems, "CATS", storeItems, p)} />
+                            </div>
+
+                            <div className="flex flex-col gap-1">
+                                <ProgressBar current={wantsSum} target={4000} label="想要" />
+                                <DetailPanel title="想要明細" items={wantsDetails} onAction={(act, p) => handleDetAction(act, setWantsDetails, "WANTS", wantsDetails, p)} />
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-5">
+                                <div className="flex flex-col gap-1">
+                                    <ProgressBar current={daily1Sum} target={2000} label="日用 (選手一)" isCustomColor colorClass="bg-orange-500" />
+                                    <DetailPanel title="選手一明細" items={daily1Details} onAction={(act, p) => handleDetAction(act, setDaily1Details, "USER1", daily1Details, p)} />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <ProgressBar current={daily2Sum} target={2000} label="日用 (選手二)" isCustomColor colorClass="bg-emerald-600" />
+                                    <DetailPanel title="選手二明細" items={daily2Details} onAction={(act, p) => handleDetAction(act, setDaily2Details, "USER2", daily2Details, p)} />
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 border-t border-stone-100 pt-4">
+                                <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">Gym Check-in</div>
+                                {[1, 2].map(num => (
+                                    <div key={num} className="flex justify-between items-center p-3 bg-white rounded-lg border border-stone-200">
+                                        <div className="flex flex-col"><span className="text-xs font-bold text-stone-600">健身房 (選手 {num})</span><span className="text-[9px] text-stone-400 font-mono">費用 {num===1?1088:1288}</span></div>
+                                        <div className="flex items-center gap-4"><div className="check-date-box text-right text-[9px] text-stone-400">{dailyData[`gym${num}`].time || <span>未簽到</span>}</div><button onClick={() => handleCheck(`gym${num}`)} className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all ${dailyData[`gym${num}`].checked ? 'bg-emerald-50 border-emerald-500 text-emerald-600' : 'border-stone-200 text-transparent'}`}>✓</button></div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-between items-center p-3 bg-stone-50 rounded-lg border border-stone-200">
+                                <div className="flex flex-col"><span className="text-sm font-bold text-stone-700">美美的</span><span className="text-[10px] text-stone-400 font-mono">預算 3,000</span></div>
+                                <div className="flex items-center gap-4"><div className="check-date-box text-right text-[9px] text-stone-400">{dailyData.beauty.time || <span>未勾選</span>}</div><button onClick={() => handleCheck('beauty')} className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all ${dailyData.beauty.checked ? 'bg-emerald-50 border-emerald-500 text-emerald-600' : 'border-stone-200 text-transparent'}`}>✓</button></div>
+                            </div>
+
+                            <div className="space-y-3">
+                                <ProgressBar current={oilSum} target={3000} label="出油用" />
+                                <DetailPanel title="加油明細" items={carItems} onAction={(act, p) => handleDetAction(act, setCarItems, "OIL", carItems, p)} />
+                            </div>
+
+                            <div className="pt-4 border-t border-stone-200 space-y-3">
+                                <div className="text-[10px] font-bold title-brown italic uppercase tracking-wider">Monthly Bills</div>
+                                <ProgressBar current={totalBills} target={3000} label="月帳單總額" />
+                                <DetailPanel title="帳單明細" items={billDetails} onAction={(act, p) => handleDetAction(act, setBillDetails, "BILLS", billDetails, p)} />
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('ServiceWorker 註冊成功，範圍:', reg.scope))
+                    .catch(err => console.error('ServiceWorker 註冊失敗:', err));
+            });
+        }
+    </script>
+</body>
+</html>
