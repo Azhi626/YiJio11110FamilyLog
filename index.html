@@ -84,7 +84,7 @@
             );
         };
 
-        const InventoryBox = ({ title, items, onAction, labels = { name: '名稱', price: '單價', amount: '庫存量' }, categories = null }) => {
+        const InventoryBox = ({ title, items, onAction, labels = { name: '名稱', price: '金額', amount: '庫存量' }, categories = null }) => {
             const [editOpen, setEditOpen] = useState(false);
             const [newItem, setNewItem] = useState({ name: '', price: '', total: '', category: categories ? categories[0] : '其他' });
 
@@ -253,8 +253,18 @@
             const [daily2Details, setDaily2Details] = useState([]);
             const [billDetails, setBillDetails] = useState([]);
 
-            const eatingSum = useMemo(() => fridgeItems.reduce((acc, cur) => acc + (safeNum(cur.price) * safeNum(cur.current)), 0), [fridgeItems]);
-            const catsSum = useMemo(() => storeItems.reduce((acc, cur) => acc + (safeNum(cur.price) * safeNum(cur.current)), 0), [storeItems]);
+            // 修正冰箱與小貓貓的預算加總邏輯，直接加總價格欄位
+            const eatingSum = useMemo(() => {
+                const sum = fridgeItems.reduce((acc, cur) => acc + safeNum(cur.price), 0);
+                console.log(`[C1] 計算冰箱總花費: ${sum}`);
+                return sum;
+            }, [fridgeItems]);
+
+            const catsSum = useMemo(() => {
+                const sum = storeItems.reduce((acc, cur) => acc + safeNum(cur.price), 0);
+                console.log(`[C2] 計算小貓貓總花費: ${sum}`);
+                return sum;
+            }, [storeItems]);
             const wantsSum = useMemo(() => wantsDetails.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [wantsDetails]);
             const daily1Sum = useMemo(() => daily1Details.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [daily1Details]);
             const daily2Sum = useMemo(() => daily2Details.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [daily2Details]);
@@ -296,13 +306,25 @@
                             }));
                         }
                         const d = data.daily;
-                        if (d) {
-                            setDailyData(prev => ({
-                                ...prev,
-                                gym1: { ...prev.gym1, checked: !!d.gym1Time, time: d.gym1Time ? formatYMD(d.gym1Time) : null, cost: d.gym1 || 1088 },
-                                gym2: { ...prev.gym2, checked: !!d.gym2Time, time: d.gym2Time ? formatYMD(d.gym2Time) : null, cost: d.gym2 || 1288 },
-                                beauty: { ...prev.beauty, checked: !!d.beautyTime, time: d.beautyTime ? formatYMD(d.beautyTime) : null, cost: d.beauty || 3000 }
-                            }));
+                            if (d) {
+                                console.log(`[B1] 解析日常簽到資料: gym1 時間 = ${d.gym1}, beauty 時間 = ${d.beauty}`);
+                                
+                                setDailyData(prev => ({
+                                    ...prev,
+                                    gym1: { 
+                                        ...prev.gym1, 
+                                        checked: !!d.gym1Time, 
+                                        time: d.gym1Time ? formatYMD(d.gym1Time) : null, 
+                                        cost: safeNum(d.gym1) || 1088  // 確保 gym1 (金額) 被正確轉為數字
+                                    },
+                                    gym2: { 
+                                        ...prev.gym2, 
+                                        checked: !!d.gym2Time, 
+                                        time: d.gym2Time ? formatYMD(d.gym2Time) : null, 
+                                        cost: safeNum(d.gym2) || 1288 
+                                    },
+                                    beauty: { ...prev.beauty, checked: !!d.beauty, time: d.beauty ? formatYMD(d.beauty) : null, cost: 3000 }
+                                }));
 
                             setRent1Time(d.rent1Time ? formatYMD(d.rent1Time) : "");
                             setRent2Time(d.rent2Time ? formatYMD(d.rent2Time) : "");
@@ -571,7 +593,7 @@
                                 <InventoryBox title="冰箱庫存" items={fridgeItems} categories={fridgeCategories} onAction={(act, p) => handleInvAction(act, setFridgeItems, "FRIDGE", fridgeItems, p, formatFridge)} />                            </div>
 
                             <div className="space-y-3">
-                                <ProgressBar current={catsSum} target={4000} label="小貓貓" />
+                                <ProgressBar current={catsSum} target={6000} label="小貓貓" />
                                 <InventoryBox title="庫房庫存" items={storeItems} onAction={(act, p) => handleInvAction(act, setStoreItems, "CATS", storeItems, p, formatCats)} />
                             </div>
 
