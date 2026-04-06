@@ -10,23 +10,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --paper-bg: #f7f5f0;
-            --card-bg: #fffbf5;
-            --text-ink: #292524;
-            --title-ink: #433422;
-            --bronze: #8B5E3C;
-            --gold-solid: #D4AF37;
-        }
-
-        body {
-            font-family: 'Noto Sans TC', serif;
-            background-color: var(--paper-bg);
-            color: var(--text-ink);
-            background-image: radial-gradient(#e5e5e5 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
-
+        :root { --paper-bg: #f7f5f0; --card-bg: #fffbf5; --text-ink: #292524; --title-ink: #433422; --bronze: #8B5E3C; --gold-solid: #D4AF37; }
+        body { font-family: 'Noto Sans TC', serif; background-color: var(--paper-bg); color: var(--text-ink); background-image: radial-gradient(#e5e5e5 1px, transparent 1px); background-size: 20px 20px; }
         .title-brown { color: var(--title-ink); font-weight: 800; }
         .paper-card { background-color: var(--card-bg); box-shadow: 2px 2px 5px rgba(0,0,0,0.05), -1px -1px 2px rgba(255,255,255,0.5); border: 1px solid #e7e5e0; border-radius: 12px; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -34,7 +19,6 @@
         .progress-bg { background-color: rgba(168, 162, 158, 0.5); }
         .shadow-border { box-shadow: 0 0 0 1px rgba(0,0,0,0.1), 4px 4px 0 rgba(139, 94, 60, 0.1); }
         .check-date-box { line-height: 1.2; font-size: 10px; }
-
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
         .animate-sync { animation: pulse 1.5s infinite; }
         .bronze-gold { background-color: var(--gold-solid); }
@@ -53,7 +37,8 @@
         const { useState, useEffect, useMemo, useRef } = React;
         const STORAGE_KEY = 'family_management_api_url';
 
-        // 日期格式化工具
+        const safeNum = (val) => Number(String(val).replace(/[^0-9.-]+/g, "")) || 0;
+
         const formatYMD = (dateString) => {
             if (!dateString) return "";
             const d = new Date(dateString);
@@ -61,10 +46,22 @@
             return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
         };
 
+        const getIconForWant = (name) => {
+            const n = name.toLowerCase();
+            if (n.includes("咖啡") || n.includes("家具") || n.includes("椅") || n.includes("鐘") || n.includes("吊飾")) return "☕";
+            if (n.includes("露營")) return "⛺";
+            if (n.includes("專場") || n.includes("演唱會")) return "🎸";
+            if (n.includes("生日") || n.includes("dining") || n.includes("吃")) return "🍴";
+            if (n.includes("日本") || n.includes("東京") || n.includes("京都")) return "🇯🇵";
+            if (n.includes("歐洲") || n.includes("法國")) return "🇪🇺";
+            if (n.includes("鏡") || n.includes("保養")) return "💄";
+            return "ฅ";
+        };
+
         const Stepper = ({ value, step, onUpdate, min = 0, max }) => (
             <div className="flex items-center gap-2">
                 <button onClick={() => onUpdate(Math.max(min, value - step))} className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center hover:bg-stone-100 active:scale-95 transition-all title-brown">-</button>
-                <input type="number" value={value} onChange={(e) => onUpdate(Number(e.target.value))} className="font-mono text-sm w-16 text-center bg-transparent border-b border-stone-200 focus:border-bronze focus:outline-none" />
+                <input type="number" value={value} onChange={(e) => onUpdate(safeNum(e.target.value))} className="font-mono text-sm w-16 text-center bg-transparent border-b border-stone-200 focus:border-bronze focus:outline-none" />
                 <button onClick={() => onUpdate(max !== undefined ? Math.min(max, value + step) : value + step)} className="w-7 h-7 rounded-full border border-stone-300 flex items-center justify-center hover:bg-stone-100 active:scale-95 transition-all title-brown">+</button>
             </div>
         );
@@ -87,15 +84,60 @@
             );
         };
 
-        const InventoryBox = ({ title, items, onAction, labels = { name: '名稱', price: '單價', amount: '庫存量' } }) => {
+        const InventoryBox = ({ title, items, onAction, labels = { name: '名稱', price: '單價', amount: '庫存量' }, categories = null }) => {
             const [editOpen, setEditOpen] = useState(false);
-            const [newItem, setNewItem] = useState({ name: '', price: '', total: '' });
+            const [newItem, setNewItem] = useState({ name: '', price: '', total: '', category: categories ? categories[0] : '其他' });
 
             const handleAdd = () => {
                 if (!newItem.name || !newItem.total) return;
-                onAction('ADD', { name: newItem.name, price: Number(newItem.price) || 0, total: Number(newItem.total), current: 0 });
-                setNewItem({ name: '', price: '', total: '' });
+                onAction('ADD', { name: newItem.name, price: safeNum(newItem.price), total: safeNum(newItem.total), current: 0, category: newItem.category });
+                setNewItem({ name: '', price: '', total: '', category: categories ? categories[0] : '其他' });
             };
+
+            const renderItemRow = (item, originalIdx) => (
+                <div key={item.id || originalIdx} className="flex items-center text-stone-600 gap-1.5 my-1.5 px-1">
+                    
+                    {/* 新增的縮圖區塊 */}
+                    <div className="w-6 h-6 rounded-full bg-stone-100 overflow-hidden flex-shrink-0 border border-stone-200 flex items-center justify-center">
+                        {item.img && String(item.img).startsWith("http") ? (
+                            <React.Fragment>
+                                <img 
+                                    src={item.img} 
+                                    loading="lazy" 
+                                    className="w-full h-full object-cover" 
+                                    onError={(e) => { 
+                                        e.target.style.display = 'none';
+                                        e.target.nextSibling.style.display = 'inline';
+                                    }} 
+                                />
+                                <span className="hidden text-[12px]">ฅ</span>
+                            </React.Fragment>
+                        ) : (
+                            <span className="text-[12px]">{item.img || "ฅ"}</span>
+                        )}
+                    </div>
+
+                    <span className="flex-1 truncate">{item.name}</span>
+                    
+                    {editOpen ? (
+                        <input type="number" value={item.price} onChange={e => onAction('UPDATE', {idx: originalIdx, field: 'price', val: safeNum(e.target.value)})} className="w-16 text-right text-[10px] border border-amber-200 rounded px-1 bg-white focus:outline-none" />
+                    ) : (
+                        <span className="w-16 text-right font-mono text-stone-400">{item.price != null ? `$${item.price.toLocaleString()}` : '—'}</span>
+                    )}
+                    {editOpen ? (
+                        <div className="flex items-center gap-0.5 w-24 justify-end">
+                            <button onClick={() => onAction('UPDATE', {idx: originalIdx, field: 'current', val: Math.max(0, item.current - 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">-</button>
+                            <span className="font-mono text-[10px] w-8 text-center">{item.current}/{item.total}</span>
+                            <button onClick={() => onAction('UPDATE', {idx: originalIdx, field: 'current', val: Math.min(item.total, item.current + 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">+</button>
+                            <div className="mx-1 h-3 w-[1px] bg-stone-200"></div>
+                            <input type="number" value={item.total} onChange={e => onAction('UPDATE', {idx: originalIdx, field: 'total', val: safeNum(e.target.value)})} className="w-6 text-[9px] text-right border-b border-stone-200 bg-transparent focus:outline-none" />
+                        </div>
+                    ) : (
+                        <span className="w-24 text-right text-stone-400">{item.current} / {item.total}</span>
+                    )}
+                    {editOpen && <button onClick={() => onAction('REMOVE', {idx: originalIdx})} className="w-6 flex justify-center text-stone-300 hover:text-red-400">×</button>}
+                </div>
+            );
 
             return (
                 <div className="p-3 bg-stone-50 rounded-lg border border-stone-200 text-xs transition-all">
@@ -103,49 +145,42 @@
                         <div className="font-bold title-brown italic text-[10px]">~ {title} ~</div>
                         <button onClick={() => setEditOpen(v => !v)} className={`text-[13px] transition-colors ${editOpen ? 'text-amber-600 font-bold' : 'text-stone-300 hover:text-stone-500'}`}>{editOpen ? '完成' : '✏️'}</button>
                     </div>
-
-                    <div className="flex text-[9px] text-stone-400 font-mono mb-1 px-0.5">
-                        <span className="flex-1">{labels.name}</span>
-                        <span className="w-16 text-right">{labels.price}</span>
-                        <span className="w-24 text-right">{labels.amount}</span>
-                        {editOpen && <span className="w-6"></span>}
-                    </div>
-
-                    {/* 套用明細捲軸 */}
-                    <div className="space-y-1 max-h-[200px] overflow-y-auto hide-scrollbar">
+                    <div className="flex text-[9px] text-stone-400 font-mono mb-2 px-1"><span className="flex-1">{labels.name}</span><span className="w-16 text-right">{labels.price}</span><span className="w-24 text-right">{labels.amount}</span>{editOpen && <span className="w-6"></span>}</div>
+                    
+                    <div className="space-y-2 max-h-[250px] overflow-y-auto hide-scrollbar">
                         {items.length === 0 && <div className="text-center py-2 text-stone-300 text-[10px] italic">尚無資料</div>}
-                        {items.map((item, idx) => (
-                            <div key={idx} className="flex items-center text-stone-600 gap-1">
-                                <span className="flex-1 truncate">{item.name}</span>
-                                {editOpen ? (
-                                    <input type="number" value={item.price} onChange={e => onAction('UPDATE', {idx, field: 'price', val: Number(e.target.value)})} className="w-16 text-right text-[10px] border border-amber-200 rounded px-1 bg-white focus:outline-none focus:border-amber-500" />
-                                ) : (
-                                    <span className="w-16 text-right font-mono text-stone-400">{item.price != null ? `$${item.price.toLocaleString()}` : '—'}</span>
-                                )}
-                                {editOpen ? (
-                                    <div className="flex items-center gap-0.5 w-24 justify-end">
-                                        <button onClick={() => onAction('UPDATE', {idx, field: 'current', val: Math.max(0, item.current - 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">-</button>
-                                        <span className="font-mono text-[10px] w-8 text-center">{item.current}/{item.total}</span>
-                                        <button onClick={() => onAction('UPDATE', {idx, field: 'current', val: Math.min(item.total, item.current + 1)})} className="w-5 h-5 rounded border border-stone-300 flex items-center justify-center text-stone-400 hover:bg-white">+</button>
-                                        <div className="mx-1 h-3 w-[1px] bg-stone-200"></div>
-                                        <input type="number" value={item.total} onChange={e => onAction('UPDATE', {idx, field: 'total', val: Number(e.target.value)})} className="w-6 text-[9px] text-right border-b border-stone-200 bg-transparent focus:outline-none" />
-                                    </div>
-                                ) : (
-                                    <span className="w-24 text-right text-stone-400">{item.current} / {item.total}</span>
-                                )}
-                                {editOpen && <button onClick={() => onAction('REMOVE', {idx})} className="w-6 flex justify-center text-stone-300 hover:text-red-400">×</button>}
+                        
+                        {categories ? (
+                            <div className="flex flex-col gap-2">
+                                {categories.map(cat => {
+                                    const catItems = items.map((it, i) => ({...it, originalIdx: i})).filter(it => (it.category || "其他") === cat);
+                                    if (catItems.length === 0) return null;
+                                    return (
+                                        <div key={cat} className="bg-white p-2 rounded-md border border-stone-100 shadow-sm">
+                                            <div className="text-[11px] font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded inline-block mb-1 border border-stone-200">{cat}</div>
+                                            {catItems.map(item => renderItemRow(item, item.originalIdx))}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        ))}
+                        ) : ( items.map((item, idx) => renderItemRow(item, idx)) )}
                     </div>
 
                     {editOpen && (
                         <div className="mt-4 pt-3 border-t border-dashed border-stone-200">
                             <div className="text-[9px] font-bold text-amber-600 mb-2 uppercase tracking-tighter">＋ 新增紀錄</div>
-                            <div className="flex items-center gap-1">
-                                <input type="text" placeholder={labels.name} value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white focus:border-amber-400" />
-                                <input type="number" placeholder="金額" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white" />
-                                <input type="number" placeholder="數量" value={newItem.total} onChange={e => setNewItem({...newItem, total: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white" />
-                                <button onClick={handleAdd} className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600">＋</button>
+                            <div className="flex flex-col gap-2">
+                                {categories && (
+                                    <select value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white text-stone-600 focus:outline-none">
+                                        {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                    </select>
+                                )}
+                                <div className="flex items-center gap-1">
+                                    <input type="text" placeholder={labels.name} value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:border-amber-400" />
+                                    <input type="number" placeholder="金額" value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white focus:outline-none" />
+                                    <input type="number" placeholder="數量" value={newItem.total} onChange={e => setNewItem({...newItem, total: e.target.value})} className="w-12 text-[10px] border border-stone-200 rounded px-1.5 py-1 bg-white focus:outline-none" />
+                                    <button onClick={handleAdd} className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 flex-shrink-0">＋</button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -159,40 +194,30 @@
 
             const handleAdd = () => {
                 if (!form.name || !form.amount) return;
-                onAction('ADD', { name: form.name, amount: Number(form.amount), date: form.date });
+                onAction('ADD', { name: form.name, amount: safeNum(form.amount), date: form.date });
                 setForm({ name: '', amount: '', date: formatYMD(new Date().toISOString()) });
             };
 
             return (
                 <div className="mt-1">
-                    <button onClick={() => setOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-stone-400">
-                        <span>{open ? '▾' : '▸'}</span>
-                        <span>{title} ({items.length})</span>
-                    </button>
+                    <button onClick={() => setOpen(v => !v)} className="flex items-center gap-1 text-[10px] text-stone-400"><span>{open ? '▾' : '▸'}</span><span>{title} ({items.length})</span></button>
                     <div className={`detail-panel ${open ? 'open' : 'closed'}`}>
                         <div className="mt-2 bg-stone-50 rounded-lg border border-stone-200 p-2">
                             <div className="flex items-center text-[9px] text-stone-400 font-mono pb-1 border-b border-stone-100 gap-1 mb-1">
-                                <span className="flex-1 px-0.5">名稱</span>
-                                <span className="w-16 text-right">金額</span>
-                                <span className="w-20 text-right">日期</span>
-                                <span className="w-4"></span>
+                                <span className="flex-1 px-0.5">名稱</span><span className="w-16 text-right">金額</span><span className="w-20 text-right">日期</span><span className="w-4"></span>
                             </div>
-                            
                             <div className="max-h-[200px] overflow-y-auto hide-scrollbar space-y-1 mb-2 pr-1">
                                 {items.length === 0 && <div className="text-center py-2 text-stone-300 text-[10px] italic">尚無資料</div>}
                                 {items.map((item, idx) => (
-                                    <div key={idx} className="flex items-center text-[10px] text-stone-600 gap-1">
-                                        <span className="flex-1 truncate px-0.5">{item.name}</span>
-                                        <span className="w-16 text-right font-mono">${item.amount.toLocaleString()}</span>
-                                        <span className="w-20 text-right text-stone-400 font-mono">{item.date}</span>
+                                    <div key={item.id || idx} className="flex items-center text-[10px] text-stone-600 gap-1">
+                                        <span className="flex-1 truncate px-0.5">{item.name}</span><span className="w-16 text-right font-mono">${item.amount.toLocaleString()}</span><span className="w-20 text-right text-stone-400 font-mono">{item.date}</span>
                                         <button onClick={() => onAction('REMOVE', {idx})} className="w-4 text-center text-stone-300 hover:text-red-400 transition-colors">×</button>
                                     </div>
                                 ))}
                             </div>
-                            
                             <div className="flex items-center gap-1 pt-2 border-t border-stone-100">
-                                <input type="text" placeholder="項目" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1 min-w-0 py-1" />
-                                <input type="number" placeholder="$" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="w-14 text-[10px] border border-stone-200 rounded px-1 py-1" />
+                                <input type="text" placeholder="項目" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="flex-1 text-[10px] border border-stone-200 rounded px-1 min-w-0 py-1 focus:outline-none" />
+                                <input type="number" placeholder="$" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="w-14 text-[10px] border border-stone-200 rounded px-1 py-1 focus:outline-none" />
                                 <button onClick={handleAdd} className="w-5 h-5 rounded bg-stone-400 text-white text-[12px] flex items-center justify-center flex-shrink-0 hover:bg-stone-500">+</button>
                             </div>
                         </div>
@@ -208,26 +233,17 @@
 
             const [apiUrlInput, setApiUrlInput] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
             const [apiUrlSetting, setApiUrlSetting] = useState(() => localStorage.getItem(STORAGE_KEY) || "");
+            
             const wantTimerRef = useRef(null);
+            const syncTimerRef = useRef({});
+            const fridgeCategories = ["主食&肉肉", "蔬菜", "水果", "飲料", "其他"];
 
-            const [wants, setWants] = useState([
-                { name: "家具&家飾&咖啡機", goal: 300000, current: 0, icon: "☕" },
-                { name: "漂亮露營用具", goal: 50000, current: 0, icon: "⛺" },
-                { name: "聽專場", goal: 10000, current: 0, icon: "🎸" },
-                { name: "生日吃 Fine Dining", goal: 10000, current: 0, icon: "🍴" },
-                { name: "露營出遊", goal: 10000, current: 0, icon: "🚐" },
-                { name: "日本旅費", goal: 100000, current: 0, icon: "🇯🇵" },
-                { name: "歐洲旅費", goal: 240000, current: 0, icon: "🇪🇺" },
-            ]);
-
-            const [dailyData, setDailyData] = useState({
-                beauty: { checked: false, time: null, cost: 3000 },
-                gym1: { checked: false, time: null, cost: 1088 },
-                gym2: { checked: false, time: null, cost: 1288 }
-            });
+            const [wants, setWants] = useState([]);
+            const [dailyData, setDailyData] = useState({ beauty: { checked: false, cost: 3000 }, gym1: { checked: false, cost: 1088 }, gym2: { checked: false, cost: 1288 } });
 
             const [rentStatus, setRentStatus] = useState(0);
-            const [rentTime, setRentTime] = useState(null);
+            const [rent1Time, setRent1Time] = useState("");
+            const [rent2Time, setRent2Time] = useState("");
 
             const [fridgeItems, setFridgeItems] = useState([]);
             const [storeItems, setStoreItems] = useState([]);
@@ -237,62 +253,142 @@
             const [daily2Details, setDaily2Details] = useState([]);
             const [billDetails, setBillDetails] = useState([]);
 
-            const eatingSum = useMemo(() => fridgeItems.reduce((acc, cur) => acc + ((Number(cur.price) || 0) * (Number(cur.current) || 0)), 0), [fridgeItems]);
-            const catsSum = useMemo(() => storeItems.reduce((acc, cur) => acc + ((Number(cur.price) || 0) * (Number(cur.current) || 0)), 0), [storeItems]);
-            const wantsSum = useMemo(() => wantsDetails.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [wantsDetails]);
-            const daily1Sum = useMemo(() => daily1Details.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [daily1Details]);
-            const daily2Sum = useMemo(() => daily2Details.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [daily2Details]);
-            const oilSum = useMemo(() => carItems.reduce((acc, cur) => acc + (Number(cur.amount) || 0), 0), [carItems]);            const totalBills = useMemo(() => billDetails.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0), [billDetails]);
+            const eatingSum = useMemo(() => fridgeItems.reduce((acc, cur) => acc + (safeNum(cur.price) * safeNum(cur.current)), 0), [fridgeItems]);
+            const catsSum = useMemo(() => storeItems.reduce((acc, cur) => acc + (safeNum(cur.price) * safeNum(cur.current)), 0), [storeItems]);
+            const wantsSum = useMemo(() => wantsDetails.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [wantsDetails]);
+            const daily1Sum = useMemo(() => daily1Details.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [daily1Details]);
+            const daily2Sum = useMemo(() => daily2Details.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [daily2Details]);
+            const oilSum = useMemo(() => carItems.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [carItems]);            
+            const totalBills = useMemo(() => billDetails.reduce((acc, cur) => acc + safeNum(cur.amount), 0), [billDetails]);
 
             const totalDailySpent = useMemo(() => {
                 let sum = eatingSum + catsSum + wantsSum + daily1Sum + daily2Sum + oilSum + totalBills;
-                if (dailyData.beauty.checked) sum += Number(dailyData.beauty.cost) || 0;
-                if (dailyData.gym1.checked) sum += Number(dailyData.gym1.cost) || 0;
-                if (dailyData.gym2.checked) sum += Number(dailyData.gym2.cost) || 0;
+                if (dailyData.beauty.checked) sum += safeNum(dailyData.beauty.cost);
+                if (dailyData.gym1.checked) sum += safeNum(dailyData.gym1.cost);
+                if (dailyData.gym2.checked) sum += safeNum(dailyData.gym2.cost);
                 return sum;
             }, [eatingSum, catsSum, wantsSum, daily1Sum, daily2Sum, oilSum, totalBills, dailyData]);
 
             const fetchData = async () => {
                 if (!apiUrlSetting) return;
+                console.log("[A] 呼叫 fetchData 開始抓取資料");
                 setSyncing(true);
                 try {
                     const response = await fetch(apiUrlSetting);
                     const data = await response.json();
                     
                     if (data) {
-                        if (data.wants && Array.isArray(data.wants)) {
-                            setWants(prev => prev.map(w => {
-                                const backendData = data.wants.find(dw => dw.name === w.name);
-                                return backendData ? { ...w, current: Number(backendData.current) || 0, goal: Number(backendData.goal) || 0 } : w;
+                        console.log("[B] 成功解析 GAS 回傳資料");
+                        const genId = (prefix, i) => `${prefix}-${Date.now()}-${i}`;
+
+                       if (data.wants && Array.isArray(data.wants)) {
+                            console.log(`[B3] 接收區塊一資料，首筆圖示為: ${data.wants[0]?.icon || '無'}`); // 診斷點 B3
+                            
+                            setWants(prev => data.wants.map((dw, i) => {
+                                // 直接使用後端傳來的 icon (dw.icon)，如果試算表沒填，就預設給 ฅ
+                                return { 
+                                    id: genId('wt', i), 
+                                    name: dw.name, 
+                                    goal: safeNum(dw.goal), 
+                                    current: safeNum(dw.current), 
+                                    icon: dw.icon || "ฅ" 
+                                };
                             }));
                         }
                         const d = data.daily;
                         if (d) {
                             setDailyData(prev => ({
                                 ...prev,
-                                gym1: { ...prev.gym1, checked: !!d.gym1 },
-                                gym2: { ...prev.gym2, checked: !!d.gym2 },
-                                beauty: { ...prev.beauty, checked: !!d.beauty }
+                                gym1: { ...prev.gym1, checked: !!d.gym1Time, time: d.gym1Time ? formatYMD(d.gym1Time) : null, cost: d.gym1 || 1088 },
+                                gym2: { ...prev.gym2, checked: !!d.gym2Time, time: d.gym2Time ? formatYMD(d.gym2Time) : null, cost: d.gym2 || 1288 },
+                                beauty: { ...prev.beauty, checked: !!d.beautyTime, time: d.beautyTime ? formatYMD(d.beautyTime) : null, cost: d.beauty || 3000 }
                             }));
 
-                            // 日期轉換處理 (formatYMD)
-                            if (d.fridge && Array.isArray(d.fridge)) setFridgeItems(d.fridge.map(f => ({ name: f.name, price: Number(f.price)||0, current: Number(f.usage)||0, total: Number(f.stock)||0 })));
-                            if (d.cats && Array.isArray(d.cats)) setStoreItems(d.cats.map(c => ({ name: c.name, price: Number(c.price)||0, current: Number(c.usage)||0, total: Number(c.stock)||0 })));
-                            if (d.wants && Array.isArray(d.wants)) setWantsDetails(d.wants.map(w => ({ name: w.name, amount: Number(w.amount)||0, date: formatYMD(w.date) })));
-                            if (d.oil && Array.isArray(d.oil)) setCarItems(d.oil.map(o => ({ name: o.location, amount: Number(o.amount)||0, date: formatYMD(o.time) })));                            if (d.bills && Array.isArray(d.bills)) setBillDetails(d.bills.map(b => ({ name: b.item, amount: Number(b.amount)||0, date: formatYMD(b.date) })));
-                            if (d.user1 && Array.isArray(d.user1)) setDaily1Details(d.user1.map(u => ({ name: u.name, amount: Number(u.amount)||0, date: formatYMD(u.date) })));
-                            if (d.user2 && Array.isArray(d.user2)) setDaily2Details(d.user2.map(u => ({ name: u.name, amount: Number(u.amount)||0, date: formatYMD(u.date) })));
+                            setRent1Time(d.rent1Time ? formatYMD(d.rent1Time) : "");
+                            setRent2Time(d.rent2Time ? formatYMD(d.rent2Time) : "");
+                            let rStat = 0;
+                            if (d.rent1Time && !d.rent2Time) rStat = 1;
+                            if (!d.rent1Time && d.rent2Time) rStat = 2;
+                            if (d.rent1Time && d.rent2Time) rStat = 3;
+                            setRentStatus(rStat);
+
+                            if (d.fridge && Array.isArray(d.fridge)) {
+                                setFridgeItems(d.fridge.map((f, i) => ({ 
+                                    id: genId('f', i), 
+                                    name: f.name, 
+                                    price: safeNum(f.price), 
+                                    current: safeNum(f.usage), 
+                                    total: safeNum(f.stock), 
+                                    category: f.category || "其他",
+                                    img: f.img // [新增] 接手後端傳來的圖片或Emoji字串
+                                })));
+                            }                            
+                            if (d.cats && Array.isArray(d.cats)) {
+                                setStoreItems(d.cats.map((c, i) => ({ 
+                                    id: genId('c', i), 
+                                    name: c.name, 
+                                    price: safeNum(c.price), 
+                                    current: safeNum(c.usage), 
+                                    total: safeNum(c.stock),
+                                    img: c.img // [新增] 接手後端傳來的圖片或Emoji字串
+                                })));
+                            }
+                            if (d.wants && Array.isArray(d.wants)) setWantsDetails(d.wants.map((w, i) => ({ id: genId('w', i), name: w.name, amount: safeNum(w.amount), date: formatYMD(w.date) })));
+                            if (d.oil && Array.isArray(d.oil)) setCarItems(d.oil.map((o, i) => ({ id: genId('o', i), name: o.location, amount: safeNum(o.amount), date: formatYMD(o.time) })));                            
+                            if (d.bills && Array.isArray(d.bills)) setBillDetails(d.bills.map((b, i) => ({ id: genId('b', i), name: b.item, amount: safeNum(b.amount), date: formatYMD(b.date) })));
+                            if (d.user1 && Array.isArray(d.user1)) setDaily1Details(d.user1.map((u, i) => ({ id: genId('u1', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
+                            if (d.user2 && Array.isArray(d.user2)) setDaily2Details(d.user2.map((u, i) => ({ id: genId('u2', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
                         }
                     }
-                } catch (error) {
-                    console.error("取得資料失敗:", error);
-                } finally {
-                    setSyncing(false);
-                }
+                } catch (error) { console.error("取得資料失敗:", error); } finally { setSyncing(false); }
             };
 
             useEffect(() => { if (apiUrlSetting) fetchData(); }, [apiUrlSetting]);
 
+            // 修改點 1：新增強制同步函式
+            const flushAllSyncs = async () => {
+                console.log("[D1] 啟動強制同步 (Flush)，檢查是否有待上傳資料...");
+                const categories = Object.keys(syncTimerRef.current);
+                
+                // 遍歷所有計時器
+                for (const cat of categories) {
+                    if (syncTimerRef.current[cat]) {
+                        console.log(`[D2] 偵測到 ${cat} 尚有未上傳變動，立即強制執行。`);
+                        // 原生方法：清除計時器，防止重複觸發
+                        clearTimeout(syncTimerRef.current[cat]);
+                        delete syncTimerRef.current[cat];
+                        
+                        // 取得當前對應的資料與格式化工具 (這裡需要稍微調整 closure，或直接強制觸發最後一次更新)
+                        // 為了簡化，我們讓綠色按鈕點擊時，先給予 0.5 秒緩衝確保最後一筆 handleAction 已進入 setter
+                    }
+                }
+            };
+
+            // 修改點 2：升級 triggerSync
+            const triggerSync = async () => {
+                if (!apiUrlSetting) {
+                    setSyncing(true);
+                    setTimeout(() => setSyncing(false), 800);
+                    return;
+                }
+
+                setSyncing(true);
+                // 1. 先執行強制同步 (這裡我們採用最穩健的做法：讓現有的 Timer 跑完)
+                console.log("[D3] 準備重新整理，確保資料已同步至雲端...");
+                // [診斷點 D1] 檢查是否有正在倒數的計時器
+                const hasPendingSync = Object.values(syncTimerRef.current).some(timer => timer);
+                const hasPendingWant = wantTimerRef.current;
+                if (hasPendingSync || hasPendingWant) {
+                    console.log("[D1] 偵測到尚有未上傳的資料，延長等待時間讓寫入完成...");
+                    // 強制等待 1.5 秒，確保所有的 setTimeout 都已經觸發並把資料 POST 出去
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                }
+
+                console.log("[D3] 準備重新整理，向雲端抓取最新資料...");
+                // 2. 呼叫 fetchData
+                await fetchData(); 
+                console.log("[D4] 同步完成！");
+            };
             const saveConnectionSettings = () => {
                 const url = apiUrlInput.trim();
                 setApiUrlSetting(url);
@@ -300,45 +396,42 @@
                 setIsSettingsOpen(false);
             };
 
-            // ===== 核心覆寫同步引擎 =====
-            const syncCategory = async (categoryKey, itemsToSync, formatFn) => {
+            const syncCategory = (categoryKey, itemsToSync, formatFn) => {
                 if (!apiUrlSetting) return;
-                setSyncing(true);
-                try {
-                    const data2D = itemsToSync.map(formatFn);
-                    console.log(`[A] 正在覆寫區塊 ${categoryKey}:`, data2D);
-                    await fetch(apiUrlSetting, {
-                        method: 'POST',
-                        body: JSON.stringify({ action: "OVERWRITE_CATEGORY", category: categoryKey, data: data2D }),
-                        mode: 'no-cors'
-                    });
-                    setTimeout(fetchData, 1500); 
-                } catch (error) { 
-                    console.error("[C] 覆寫失敗:", error); 
-                    setSyncing(false); 
-                }
+                if (syncTimerRef.current[categoryKey]) clearTimeout(syncTimerRef.current[categoryKey]);
+                syncTimerRef.current[categoryKey] = setTimeout(async () => {
+                    setSyncing(true);
+                    try {
+                        const data2D = itemsToSync.map(formatFn);
+                        await fetch(apiUrlSetting, { method: 'POST', body: JSON.stringify({ action: "OVERWRITE_CATEGORY", category: categoryKey, data: data2D }), mode: 'no-cors' });
+                        setTimeout(fetchData, 1000); 
+                    } catch (error) { setSyncing(false); }
+                }, 1000);
             };
 
-            const formatInv = (item) => [item.name, item.price, item.current, item.total, ""];
+            const formatFridge = (item) => [item.category || "其他", item.name, item.price, item.current, item.total, ""];
+            const formatCats = (item) => [item.name, item.price, item.current, item.total, ""];
+            
             const formatDet = (item) => [item.name, item.amount, item.date];
 
-            const handleInvAction = (action, setter, category, items, payload) => {
+            const handleInvAction = (action, setter, category, items, payload, formatFn) => {
+                console.log(`[C] 觸發庫存更新: ${action}, 類別: ${category}`);
                 let n = [...items];
-                if (action === 'ADD') n.push(payload);
+                if (action === 'ADD') n.unshift({ ...payload, id: `new-${Date.now()}` }); 
                 if (action === 'UPDATE') n[payload.idx] = { ...n[payload.idx], [payload.field]: payload.val };
                 if (action === 'REMOVE') n = n.filter((_, i) => i !== payload.idx);
                 setter(n);
-                syncCategory(category, n, formatInv);
+                syncCategory(category, n, formatFn); // 這裡使用專屬的轉換器
             };
 
             const handleDetAction = (action, setter, category, items, payload) => {
+                console.log(`[C] 觸發明細更新: ${action}, 類別: ${category}`);
                 let n = [...items];
-                if (action === 'ADD') n.push(payload);
+                if (action === 'ADD') n.unshift({ ...payload, id: `new-${Date.now()}` });
                 if (action === 'REMOVE') n = n.filter((_, i) => i !== payload.idx);
                 setter(n);
                 syncCategory(category, n, formatDet);
             };
-            // ============================
 
             const updateWant = (index, newVal) => {
                 const n = [...wants]; n[index].current = newVal; setWants(n); 
@@ -362,46 +455,47 @@
                     const typeMap = { gym1: "GYM1", gym2: "GYM2", beauty: "BEAUTY" };
                     setSyncing(true);
                     await fetch(apiUrlSetting, { method: 'POST', body: JSON.stringify({ action: "CHECK_ACTION", type: typeMap[key], value: isChecked }), mode: 'no-cors' });
-                    setTimeout(fetchData, 1500); 
+                    setTimeout(fetchData, 1000); 
                 } catch (error) { setSyncing(false); }
             };
 
-            const cycleRent = () => {
+            const cycleRent = async () => {
                 const next = (rentStatus + 1) % 4;
-                setRentStatus(next);
-                setRentTime(next !== 0 ? new Date().toLocaleString('zh-TW', { hour12: false }) : null);
+                const now = formatYMD(new Date().toISOString());
+                let r1 = rent1Time, r2 = rent2Time;
+                if (next === 0) { r1 = ""; r2 = ""; } else if (next === 1) { r1 = now; r2 = ""; } else if (next === 2) { r1 = ""; r2 = now; } else if (next === 3) { r1 = r1 || now; r2 = r2 || now; }
+                setRentStatus(next); setRent1Time(r1); setRent2Time(r2);
+                if (!apiUrlSetting) return;
+                setSyncing(true);
+                try { await fetch(apiUrlSetting, { method: 'POST', body: JSON.stringify({ action: "UPDATE_RENT", rent1: r1, rent2: r2 }), mode: 'no-cors' }); setTimeout(fetchData, 1000); } catch (e) { setSyncing(false); }
             };
 
             const getRentBtnStyle = () => {
-                switch(rentStatus) {
-                    case 1: return "bg-orange-500 border-orange-600 text-white shadow-inner";
-                    case 2: return "bg-emerald-600 border-emerald-700 text-white shadow-inner";
-                    case 3: return "bg-emerald-50 border-emerald-500 text-emerald-600 font-bold";
-                    default: return "border-stone-200 text-transparent";
-                }
+                switch(rentStatus) { case 1: return "bg-orange-500 border-orange-600 text-white shadow-inner"; case 2: return "bg-emerald-600 border-emerald-700 text-white shadow-inner"; case 3: return "bg-emerald-50 border-emerald-500 text-emerald-600 font-bold"; default: return "border-stone-200 text-transparent"; }
             };
 
             return (
                 <div className="max-w-md mx-auto min-h-screen flex flex-col p-4 space-y-6 pb-12 relative">
                     <header className="py-4 text-center sticky top-0 bg-[#f7f5f0]/95 backdrop-blur-sm z-50 flex justify-between items-center border-b border-stone-200">
-                        <div className="w-12"></div>
+                        <div className="w-16"></div>
                         <div>
                             <h1 className="text-2xl title-brown tracking-tighter">義教街 貓狗好啦好啦</h1>
                             <p className="text-[10px] text-stone-400 font-mono tracking-widest uppercase">{today}</p>
                         </div>
-                        <div className="w-12 flex justify-end">
-                            <button onClick={() => setIsSettingsOpen(true)} className="p-2 -mr-2 outline-none">
+                        <div className="w-16 flex justify-end gap-3 items-center">
+                            <button onClick={triggerSync} className="p-1 outline-none relative" title="重新整理 / 同步">
                                 <div className={`w-3 h-3 rounded-full transition-colors ${syncing ? 'bg-amber-400 animate-sync' : (apiUrlSetting ? 'bg-emerald-500' : 'bg-stone-300')}`}></div>
                             </button>
+                            <button onClick={() => setIsSettingsOpen(true)} className="text-stone-400 hover:text-stone-600 transition-colors text-lg">⚙️</button>
                         </div>
                     </header>
 
                     {isSettingsOpen && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setIsSettingsOpen(false)}>
                             <div className="w-full max-w-sm paper-card p-6 space-y-4" onClick={e => e.stopPropagation()}>
-                                <h2 className="text-lg font-bold title-brown">⚙️ 連線設定</h2>
+                                <h2 className="text-lg font-bold title-brown">連線設定</h2>
                                 <input type="url" className="w-full border border-stone-200 rounded-lg px-3 py-2 text-xs focus:border-amber-500 focus:outline-none" placeholder="輸入 GAS Web App URL" value={apiUrlInput} onChange={(e) => setApiUrlInput(e.target.value)} />
-                                <button onClick={saveConnectionSettings} className="w-full bg-stone-800 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-stone-700">儲存並同步</button>
+                                <button onClick={saveConnectionSettings} className="w-full bg-stone-800 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-stone-700">儲存</button>
                             </div>
                         </div>
                     )}
@@ -409,15 +503,41 @@
                     <section className="h-[75vh] paper-card p-4 flex flex-col">
                         <h2 className="text-lg font-bold mb-4 title-brown sticky top-0 bg-[#fffbf5] py-2 z-10">2026 第二季 想要的進度</h2>
                         <div className="flex-1 overflow-y-auto space-y-6 pr-2 hide-scrollbar">
-                            {wants.map((item, idx) => (
-                                <div key={idx} className="flex flex-col gap-2">
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-2"><span className="text-xl">{item.icon || "✨"}</span><span className="text-sm font-bold text-stone-700">{item.name}</span></div>
-                                        <Stepper value={item.current} step={100} onUpdate={(val) => updateWant(idx, val)} />
+                            {/* 這裡就是加回來的 wants.map 迴圈 */}
+                            {wants.map((item, idx) => {
+                                // [診斷點 E] 追蹤每筆想要進度的渲染狀態
+                                if (idx === 0) console.log(`[E] 渲染區塊一，首筆名稱: ${item.name}, 圖示類型: ${String(item.icon).startsWith('http') ? 'URL' : 'Emoji'}`);
+                                
+                                return (
+                                    <div key={item.id || idx} className="flex flex-col gap-2">
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2">
+                                                {/* 修改點：新增一個簡單的狀態判定，或使用更聰明的 CSS 替換 */}
+                                                {item.icon && String(item.icon).startsWith("http") ? (
+                                                    <div className="w-7 h-7 flex-shrink-0 relative">
+                                                        <img 
+                                                            src={item.icon} 
+                                                            className="w-full h-full rounded-full object-cover shadow-sm border border-stone-200" 
+                                                            onError={(e) => { 
+                                                                // [診斷點 F] 圖片載入失敗，觸發退回機制
+                                                                console.log(`[F] 圖片載入失敗: ${item.name}，自動換回 Emoji`);
+                                                                e.target.style.display = 'none'; 
+                                                                e.target.nextSibling.style.display = 'block'; 
+                                                            }} 
+                                                        />
+                                                        <span className="hidden text-xl text-center w-full">ฅ</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-xl">{item.icon || "ฅ"}</span>
+                                                )}
+                                                <span className="text-sm font-bold text-stone-700">{item.name}</span>
+                                            </div>
+                                            <Stepper value={item.current} step={100} onUpdate={(val) => updateWant(idx, val)} />
+                                        </div>
+                                        <ProgressBar current={item.current} target={item.goal} />
                                     </div>
-                                    <ProgressBar current={item.current} target={item.goal} />
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </section>
 
@@ -428,10 +548,11 @@
                         </div>
 
                         <div className="paper-card p-4 flex justify-between items-center">
-                            <div><div className="text-lg font-bold title-brown">房房</div><div className="text-[10px] text-stone-400 font-mono">31,000 /times 2</div></div>
+                            <div><div className="text-lg font-bold title-brown">房房</div><div className="text-[10px] text-stone-400 font-mono">31,000x2</div></div>
                             <div className="flex items-center gap-3">
                                 <div className="check-date-box flex flex-col text-right text-stone-400 w-24">
-                                    {rentTime ? (<><span>{rentTime.split(' ')[0]}</span><span>{rentTime.split(' ')[1]}</span></>) : <span className="italic opacity-30">未處理</span>}
+                                    {rent1Time ? <span>P1: {rent1Time}</span> : <span className="italic opacity-30">P1 未處理</span>}
+                                    {rent2Time ? <span>P2: {rent2Time}</span> : <span className="italic opacity-30">P2 未處理</span>}
                                 </div>
                                 <button onClick={cycleRent} className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all ${getRentBtnStyle()}`}>
                                     {rentStatus === 3 ? '✓' : (rentStatus === 0 ? '' : (rentStatus === 1 ? 'P1' : 'P2'))}
@@ -447,12 +568,11 @@
 
                             <div className="space-y-3">
                                 <ProgressBar current={eatingSum} target={10000} label="吃的" />
-                                <InventoryBox title="冰箱庫存" items={fridgeItems} onAction={(act, p) => handleInvAction(act, setFridgeItems, "FRIDGE", fridgeItems, p)} />
-                            </div>
+                                <InventoryBox title="冰箱庫存" items={fridgeItems} categories={fridgeCategories} onAction={(act, p) => handleInvAction(act, setFridgeItems, "FRIDGE", fridgeItems, p, formatFridge)} />                            </div>
 
                             <div className="space-y-3">
                                 <ProgressBar current={catsSum} target={4000} label="小貓貓" />
-                                <InventoryBox title="庫房庫存" items={storeItems} onAction={(act, p) => handleInvAction(act, setStoreItems, "CATS", storeItems, p)} />
+                                <InventoryBox title="庫房庫存" items={storeItems} onAction={(act, p) => handleInvAction(act, setStoreItems, "CATS", storeItems, p, formatCats)} />
                             </div>
 
                             <div className="flex flex-col gap-1">
@@ -475,7 +595,7 @@
                                 <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">Gym Check-in</div>
                                 {[1, 2].map(num => (
                                     <div key={num} className="flex justify-between items-center p-3 bg-white rounded-lg border border-stone-200">
-                                        <div className="flex flex-col"><span className="text-xs font-bold text-stone-600">健身房 (選手 {num})</span><span className="text-[9px] text-stone-400 font-mono">費用 {num===1?1088:1288}</span></div>
+                                        <div className="flex flex-col"><span className="text-xs font-bold text-stone-600">健身房 (選手 {num})</span><span className="text-[9px] text-stone-400 font-mono">費用 {dailyData[`gym${num}`].cost}</span></div>
                                         <div className="flex items-center gap-4"><div className="check-date-box text-right text-[9px] text-stone-400">{dailyData[`gym${num}`].time || <span>未簽到</span>}</div><button onClick={() => handleCheck(`gym${num}`)} className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-all ${dailyData[`gym${num}`].checked ? 'bg-emerald-50 border-emerald-500 text-emerald-600' : 'border-stone-200 text-transparent'}`}>✓</button></div>
                                     </div>
                                 ))}
