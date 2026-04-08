@@ -431,7 +431,14 @@
                 }, 1000);
             };
 
-            const formatFridge = (item) => [item.category || "其他", item.name, item.price, item.current, item.total, ""];
+            const formatFridge = (item) => [
+                item.category || "其他", 
+                item.name || "未命名", 
+                item.price || 0, 
+                item.current || 0, 
+                item.total || 0, 
+                item.img || ""
+            ];
             const formatCats = (item) => [item.name, item.price, item.current, item.total, ""];
             
             const formatDet = (item) => [item.name, item.amount, item.date];
