@@ -142,9 +142,20 @@
             return (
                 <div className="p-3 bg-stone-50 rounded-lg border border-stone-200 text-xs transition-all">
                     <div className="flex items-center justify-between border-b border-stone-200 pb-1 mb-2">
-                        <div className="font-bold title-brown italic text-[10px]">~ {title} ~</div>
-                        <button onClick={() => setEditOpen(v => !v)} className={`text-[13px] transition-colors ${editOpen ? 'text-amber-600 font-bold' : 'text-stone-300 hover:text-stone-500'}`}>{editOpen ? '完成' : '✏️'}</button>
-                    </div>
+                    <div className="font-bold title-brown italic text-[10px]">~ {title} ~</div>
+                    <button 
+                        onClick={() => {
+                            if (editOpen) {
+                                // 如果當前是編輯狀態，按下按鈕代表「完成」，發送 SYNC 指令給外層
+                                onAction('SYNC', null); 
+                            }
+                            setEditOpen(v => !v); // 切換編輯狀態
+                        }} 
+                        className={`text-[13px] transition-colors ${editOpen ? 'text-amber-600 font-bold' : 'text-stone-300 hover:text-stone-500'}`}
+                    >
+                        {editOpen ? '完成' : '✏️'}
+                    </button>
+                </div>
                     <div className="flex text-[9px] text-stone-400 font-mono mb-2 px-1"><span className="flex-1">{labels.name}</span><span className="w-16 text-right">{labels.price}</span><span className="w-24 text-right">{labels.amount}</span>{editOpen && <span className="w-6"></span>}</div>
                     
                     <div className="space-y-2 max-h-[250px] overflow-y-auto hide-scrollbar">
@@ -236,7 +247,7 @@
             
             const wantTimerRef = useRef(null);
             const syncTimerRef = useRef({});
-            const fridgeCategories = ["主食&肉肉", "蔬菜", "水果", "飲料", "其他"];
+            const fridgeCategories = ["主食&肉肉", "蔬菜", "點心/水果", "飲料", "其他"];
 
             const [wants, setWants] = useState([]);
             const [dailyData, setDailyData] = useState({ beauty: { checked: false, cost: 3000 }, gym1: { checked: false, cost: 1088 }, gym2: { checked: false, cost: 1288 } });
@@ -432,25 +443,64 @@
             };
 
             const formatFridge = (item) => [
-                item.category || "其他", 
-                item.name || "未命名", 
-                item.price || 0, 
-                item.current || 0, 
-                item.total || 0, 
-                item.img || ""
+                item.category || "其他", item.name || "未命名", item.price || 0, item.current || 0, item.total || 0, 
+                item.purchaseDate || "", item.finishDate || "", item.usedDays || "", item.status || "庫存", item.img || ""
             ];
             const formatCats = (item) => [item.name, item.price, item.current, item.total, ""];
             
             const formatDet = (item) => [item.name, item.amount, item.date];
-
+            // 輔助：計算天數差
+            const calculateDays = (start, end) => {
+                if (!start || !end) return "";
+                const s = new Date(start);
+                const e = new Date(end);
+                const diff = Math.ceil((e - s) / (1000 * 60 * 60 * 24));
+                return diff > 0 ? diff : 1;
+            };
             const handleInvAction = (action, setter, category, items, payload, formatFn) => {
-                console.log(`[C] 觸發庫存更新: ${action}, 類別: ${category}`);
+                if (action === 'SYNC') {
+                    console.log(`[C] 邏輯分支：收到完成指令，執行 ${category} 區塊上傳`); // 診斷點 C
+                    syncCategory(category, items, formatFn);
+                    return; 
+                }
+
                 let n = [...items];
-                if (action === 'ADD') n.unshift({ ...payload, id: `new-${Date.now()}` }); 
-                if (action === 'UPDATE') n[payload.idx] = { ...n[payload.idx], [payload.field]: payload.val };
-                if (action === 'REMOVE') n = n.filter((_, i) => i !== payload.idx);
+                const today = formatYMD(new Date().toISOString());
+
+                if (action === 'ADD') {
+                    // [2] 自動加入採買日期
+                    n.unshift({ 
+                        ...payload, 
+                        id: `new-${Date.now()}`, 
+                        purchaseDate: today, 
+                        status: '庫存',
+                        finishDate: '', 
+                        usedDays: '' 
+                    }); 
+                } 
+                else if (action === 'UPDATE') {
+                    let item = { ...n[payload.idx], [payload.field]: payload.val };
+                    
+                    // [3] 檢查是否用完 (當 current >= total 且狀態不是用完時)
+                    if (item.current >= item.total && item.total > 0 && item.status !== '用完') {
+                        item.status = '用完';
+                        item.finishDate = today;
+                        item.usedDays = calculateDays(item.purchaseDate, today);
+                    } else if (item.current < item.total) {
+                        // 如果又買了或調回數量，重設狀態
+                        item.status = '庫存';
+                        item.finishDate = '';
+                        item.usedDays = '';
+                    }
+                    n[payload.idx] = item;
+                } 
+                else if (action === 'REMOVE') {
+                    n = n.filter((_, i) => i !== payload.idx);
+                }
+                
                 setter(n);
-                syncCategory(category, n, formatFn); // 這裡使用專屬的轉換器
+                // [1] 取消此處的 syncCategory(category, n, formatFn); 
+                // 改為只存在於 setter，同步動作交給 InventoryBox 的「完成」按鈕
             };
 
             const handleDetAction = (action, setter, category, items, payload) => {
