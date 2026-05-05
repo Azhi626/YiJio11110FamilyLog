@@ -90,7 +90,17 @@
 
             const handleAdd = () => {
                 if (!newItem.name || !newItem.total) return;
-                onAction('ADD', { name: newItem.name, price: safeNum(newItem.price), total: safeNum(newItem.total), current: 0, category: newItem.category });
+                // 產生唯一 ID (字首 f- 加上時間戳與亂數)
+                const newId = `f-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                
+                onAction('ADD', { 
+                    id: newId, 
+                    name: newItem.name, 
+                    price: safeNum(newItem.price), 
+                    total: safeNum(newItem.total), 
+                    current: 0, 
+                    category: newItem.category 
+                });
                 setNewItem({ name: '', price: '', total: '', category: categories ? categories[0] : '其他' });
             };
 
@@ -164,7 +174,14 @@
                         {categories ? (
                             <div className="flex flex-col gap-2">
                                 {categories.map(cat => {
-                                    const catItems = items.map((it, i) => ({...it, originalIdx: i})).filter(it => (it.category || "其他") === cat);
+                                    const catItems = items
+                                    .map((it, i) => ({...it, originalIdx: i}))
+                                    .filter(it => (it.category || "其他") === cat)
+                                    .sort((a, b) => {
+                                        const aUsed = (a.current >= a.total && a.total > 0) ? 1 : 0;
+                                        const bUsed = (b.current >= b.total && b.total > 0) ? 1 : 0;
+                                        return aUsed - bUsed; // 0 放前面，1 放後面
+                                    });
                                     if (catItems.length === 0) return null;
                                     return (
                                         <div key={cat} className="bg-white p-2 rounded-md border border-stone-100 shadow-sm">
@@ -256,6 +273,22 @@
             const [rent1Time, setRent1Time] = useState("");
             const [rent2Time, setRent2Time] = useState("");
 
+            // [新增] 冰箱資料欄位映射常數
+            const FRIDGE_IDX = {
+                CATEGORY: 0,
+                ID: 1,         // [新增] C欄: 物品ID
+                NAME: 2,
+                PRICE: 3,
+                CURRENT: 4,
+                TOTAL: 5,
+                PURCHASE_DATE: 6,
+                FINISH_DATE: 7,
+                USED_DAYS: 8,
+                STATUS: 9,
+                IMG: 10
+            };
+
+
             const [fridgeItems, setFridgeItems] = useState([]);
             const [storeItems, setStoreItems] = useState([]);
             const [carItems, setCarItems] = useState([]);
@@ -290,90 +323,106 @@
                 return sum;
             }, [eatingSum, catsSum, wantsSum, daily1Sum, daily2Sum, oilSum, totalBills, dailyData]);
 
+            // 1. 完整的封裝函式：負責把拿到的 JSON data 更新到 React 的 state
+            const applyDataToState = (data) => {
+                const genId = (prefix, i) => `${prefix}-${Date.now()}-${i}`;
+
+                // 處理 Wants 區塊
+                if (data.wants && Array.isArray(data.wants)) {
+                    setWants(data.wants.map((dw, i) => ({
+                        id: genId('wt', i),
+                        name: dw.name,
+                        goal: safeNum(dw.goal),
+                        current: safeNum(dw.current),
+                        icon: dw.icon || "ฅ"
+                    })));
+                }
+                
+                // 處理 Daily 區塊 (把原本 fetchData 裡的東西完整搬過來)
+                const d = data.daily;
+                if (d) {
+                    setDailyData(prev => ({
+                        ...prev,
+                        gym1: { 
+                            ...prev.gym1, 
+                            checked: !!d.gym1Time, 
+                            time: d.gym1Time ? formatYMD(d.gym1Time) : null, 
+                            cost: safeNum(d.gym1) || 1088
+                        },
+                        gym2: { 
+                            ...prev.gym2, 
+                            checked: !!d.gym2Time, 
+                            time: d.gym2Time ? formatYMD(d.gym2Time) : null, 
+                            cost: safeNum(d.gym2) || 1288 
+                        },
+                        beauty: { ...prev.beauty, checked: !!d.beauty, time: d.beauty ? formatYMD(d.beauty) : null, cost: 3000 }
+                    }));
+
+                    setRent1Time(d.rent1Time ? formatYMD(d.rent1Time) : "");
+                    setRent2Time(d.rent2Time ? formatYMD(d.rent2Time) : "");
+                    let rStat = 0;
+                    if (d.rent1Time && !d.rent2Time) rStat = 1;
+                    if (!d.rent1Time && d.rent2Time) rStat = 2;
+                    if (d.rent1Time && d.rent2Time) rStat = 3;
+                    setRentStatus(rStat);
+
+                    if (d.fridge && Array.isArray(d.fridge)) {
+                        setFridgeItems(d.fridge.map((f, i) => ({ 
+                            id: genId('f', i), 
+                            name: f.name, 
+                            price: safeNum(f.price), 
+                            current: safeNum(f.usage), 
+                            total: safeNum(f.stock), 
+                            category: f.category || "其他",
+                            img: f.img
+                        })));
+                    }                            
+                    if (d.cats && Array.isArray(d.cats)) {
+                        setStoreItems(d.cats.map((c, i) => ({ 
+                            id: genId('c', i), 
+                            name: c.name, 
+                            price: safeNum(c.price), 
+                            current: safeNum(c.usage), 
+                            total: safeNum(c.stock),
+                            img: c.img
+                        })));
+                    }
+                    if (d.wants && Array.isArray(d.wants)) setWantsDetails(d.wants.map((w, i) => ({ id: genId('w', i), name: w.name, amount: safeNum(w.amount), date: formatYMD(w.date) })));
+                    if (d.oil && Array.isArray(d.oil)) setCarItems(d.oil.map((o, i) => ({ id: genId('o', i), name: o.location, amount: safeNum(o.amount), date: formatYMD(o.time) })));                            
+                    if (d.bills && Array.isArray(d.bills)) setBillDetails(d.bills.map((b, i) => ({ id: genId('b', i), name: b.item, amount: safeNum(b.amount), date: formatYMD(b.date) })));
+                    if (d.user1 && Array.isArray(d.user1)) setDaily1Details(d.user1.map((u, i) => ({ id: genId('u1', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
+                    if (d.user2 && Array.isArray(d.user2)) setDaily2Details(d.user2.map((u, i) => ({ id: genId('u2', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
+                }
+            }; // <--- 這裡就是你原本漏掉的括號！
+
+            // 2. 使用快取的 fetchData
             const fetchData = async () => {
                 if (!apiUrlSetting) return;
-                console.log("[A] 呼叫 fetchData 開始抓取資料");
+                
+                // [快取機制] 1. 嘗試從 localStorage 讀取並渲染畫面
+                const cachedData = localStorage.getItem('family_data_cache_v2'); 
+                if (cachedData && !syncing) {
+                    try {
+                        applyDataToState(JSON.parse(cachedData));
+                    } catch(e) { console.error("快取解析失敗", e); }
+                }
+
                 setSyncing(true);
                 try {
                     const response = await fetch(apiUrlSetting);
                     const data = await response.json();
                     
                     if (data) {
-                        console.log("[B] 成功解析 GAS 回傳資料");
-                        const genId = (prefix, i) => `${prefix}-${Date.now()}-${i}`;
-
-                       if (data.wants && Array.isArray(data.wants)) {
-                            console.log(`[B3] 接收區塊一資料，首筆圖示為: ${data.wants[0]?.icon || '無'}`); // 診斷點 B3
-                            
-                            setWants(prev => data.wants.map((dw, i) => {
-                                // 直接使用後端傳來的 icon (dw.icon)，如果試算表沒填，就預設給 ฅ
-                                return { 
-                                    id: genId('wt', i), 
-                                    name: dw.name, 
-                                    goal: safeNum(dw.goal), 
-                                    current: safeNum(dw.current), 
-                                    icon: dw.icon || "ฅ" 
-                                };
-                            }));
-                        }
-                        const d = data.daily;
-                            if (d) {
-                                console.log(`[B1] 解析日常簽到資料: gym1 時間 = ${d.gym1}, beauty 時間 = ${d.beauty}`);
-                                
-                                setDailyData(prev => ({
-                                    ...prev,
-                                    gym1: { 
-                                        ...prev.gym1, 
-                                        checked: !!d.gym1Time, 
-                                        time: d.gym1Time ? formatYMD(d.gym1Time) : null, 
-                                        cost: safeNum(d.gym1) || 1088  // 確保 gym1 (金額) 被正確轉為數字
-                                    },
-                                    gym2: { 
-                                        ...prev.gym2, 
-                                        checked: !!d.gym2Time, 
-                                        time: d.gym2Time ? formatYMD(d.gym2Time) : null, 
-                                        cost: safeNum(d.gym2) || 1288 
-                                    },
-                                    beauty: { ...prev.beauty, checked: !!d.beauty, time: d.beauty ? formatYMD(d.beauty) : null, cost: 3000 }
-                                }));
-
-                            setRent1Time(d.rent1Time ? formatYMD(d.rent1Time) : "");
-                            setRent2Time(d.rent2Time ? formatYMD(d.rent2Time) : "");
-                            let rStat = 0;
-                            if (d.rent1Time && !d.rent2Time) rStat = 1;
-                            if (!d.rent1Time && d.rent2Time) rStat = 2;
-                            if (d.rent1Time && d.rent2Time) rStat = 3;
-                            setRentStatus(rStat);
-
-                            if (d.fridge && Array.isArray(d.fridge)) {
-                                setFridgeItems(d.fridge.map((f, i) => ({ 
-                                    id: genId('f', i), 
-                                    name: f.name, 
-                                    price: safeNum(f.price), 
-                                    current: safeNum(f.usage), 
-                                    total: safeNum(f.stock), 
-                                    category: f.category || "其他",
-                                    img: f.img // [新增] 接手後端傳來的圖片或Emoji字串
-                                })));
-                            }                            
-                            if (d.cats && Array.isArray(d.cats)) {
-                                setStoreItems(d.cats.map((c, i) => ({ 
-                                    id: genId('c', i), 
-                                    name: c.name, 
-                                    price: safeNum(c.price), 
-                                    current: safeNum(c.usage), 
-                                    total: safeNum(c.stock),
-                                    img: c.img // [新增] 接手後端傳來的圖片或Emoji字串
-                                })));
-                            }
-                            if (d.wants && Array.isArray(d.wants)) setWantsDetails(d.wants.map((w, i) => ({ id: genId('w', i), name: w.name, amount: safeNum(w.amount), date: formatYMD(w.date) })));
-                            if (d.oil && Array.isArray(d.oil)) setCarItems(d.oil.map((o, i) => ({ id: genId('o', i), name: o.location, amount: safeNum(o.amount), date: formatYMD(o.time) })));                            
-                            if (d.bills && Array.isArray(d.bills)) setBillDetails(d.bills.map((b, i) => ({ id: genId('b', i), name: b.item, amount: safeNum(b.amount), date: formatYMD(b.date) })));
-                            if (d.user1 && Array.isArray(d.user1)) setDaily1Details(d.user1.map((u, i) => ({ id: genId('u1', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
-                            if (d.user2 && Array.isArray(d.user2)) setDaily2Details(d.user2.map((u, i) => ({ id: genId('u2', i), name: u.name, amount: safeNum(u.amount), date: formatYMD(u.date) })));
-                        }
+                        // [快取機制] 2. 將最新資料存入快取
+                        localStorage.setItem('family_data_cache_v2', JSON.stringify(data));
+                        // 3. 更新畫面狀態
+                        applyDataToState(data); 
                     }
-                } catch (error) { console.error("取得資料失敗:", error); } finally { setSyncing(false); }
+                } catch (error) { 
+                    console.error("取得資料失敗:", error); 
+                } finally { 
+                    setSyncing(false); 
+                }
             };
 
             useEffect(() => { if (apiUrlSetting) fetchData(); }, [apiUrlSetting]);
@@ -442,10 +491,23 @@
                 }, 1000);
             };
 
-            const formatFridge = (item) => [
-                item.category || "其他", item.name || "未命名", item.price || 0, item.current || 0, item.total || 0, 
-                item.purchaseDate || "", item.finishDate || "", item.usedDays || "", item.status || "庫存", item.img || ""
-            ];
+            const formatFridge = (item) => {
+                const row = [];
+                row[FRIDGE_IDX.CATEGORY] = item.category || "其他";
+                row[FRIDGE_IDX.ID] = item.id; // [新增] 將 ID 傳入陣列
+                row[FRIDGE_IDX.NAME] = item.name || "未命名";
+                row[FRIDGE_IDX.PRICE] = item.price || 0;
+                row[FRIDGE_IDX.CURRENT] = item.current || 0;
+                row[FRIDGE_IDX.TOTAL] = item.total || 0;
+                
+                // G-K 欄位交給試算表公式或留空
+                row[FRIDGE_IDX.PURCHASE_DATE] = item.purchaseDate || "";
+                row[FRIDGE_IDX.FINISH_DATE] = item.finishDate || "";
+                row[FRIDGE_IDX.USED_DAYS] = item.usedDays || "";
+                row[FRIDGE_IDX.STATUS] = item.status || "庫存";
+                row[FRIDGE_IDX.IMG] = item.img || "";
+                return row;
+            };
             const formatCats = (item) => [item.name, item.price, item.current, item.total, ""];
             
             const formatDet = (item) => [item.name, item.amount, item.date];
